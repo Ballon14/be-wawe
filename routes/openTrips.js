@@ -11,7 +11,8 @@ router.get("/", async (req, res) => {
         )
         res.json(rows)
     } catch (err) {
-        res.status(500).json({ error: err.message })
+        console.error('Open trips error:', err);
+        res.status(500).json({ error: "Operation failed" })
     }
 })
 
@@ -25,7 +26,8 @@ router.get("/:id", async (req, res) => {
             return res.status(404).json({ error: "Trip not found" })
         res.json(rows[0])
     } catch (err) {
-        res.status(500).json({ error: err.message })
+        console.error('Get open trip error:', err);
+        res.status(500).json({ error: "Failed to fetch trip" })
     }
 })
 
@@ -47,23 +49,39 @@ router.post(
                 dokumentasi,
                 dilaksanakan,
             } = req.body
+            // Validasi input
+            if (!nama_trip || !tanggal_berangkat || !durasi || !kuota || !harga_per_orang) {
+                return res.status(400).json({ error: "Required fields missing" });
+            }
+            
+            // Sanitize dan validasi
+            const sanitizedNamaTrip = String(nama_trip).trim().substring(0, 255);
+            const sanitizedDurasi = parseInt(durasi) || 0;
+            const sanitizedKuota = parseInt(kuota) || 0;
+            const sanitizedHarga = parseInt(harga_per_orang) || 0;
+            
+            if (sanitizedDurasi <= 0 || sanitizedKuota <= 0 || sanitizedHarga < 0) {
+                return res.status(400).json({ error: "Invalid numeric values" });
+            }
+            
             const [result] = await pool.query(
                 "INSERT INTO open_trips (nama_trip, tanggal_berangkat, durasi, kuota, harga_per_orang, fasilitas, itinerary, dokumentasi, dilaksanakan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
-                    nama_trip,
+                    sanitizedNamaTrip,
                     tanggal_berangkat,
-                    durasi,
-                    kuota,
-                    harga_per_orang,
-                    JSON.stringify(fasilitas),
-                    itinerary,
-                    JSON.stringify(dokumentasi),
+                    sanitizedDurasi,
+                    sanitizedKuota,
+                    sanitizedHarga,
+                    fasilitas ? JSON.stringify(fasilitas) : null,
+                    itinerary ? String(itinerary).trim().substring(0, 5000) : null,
+                    dokumentasi ? JSON.stringify(dokumentasi) : null,
                     dilaksanakan || 0,
                 ]
             )
             res.status(201).json({ id: result.insertId })
         } catch (err) {
-            res.status(500).json({ error: err.message })
+            console.error('Create open trip error:', err);
+            res.status(500).json({ error: "Failed to create trip" })
         }
     }
 )
@@ -129,7 +147,8 @@ router.put(
             }
             res.json({ affectedRows: result.affectedRows })
         } catch (err) {
-            res.status(500).json({ error: err.message })
+            console.error('Open trips error:', err);
+        res.status(500).json({ error: "Operation failed" })
         }
     }
 )
@@ -147,7 +166,8 @@ router.delete(
             )
             res.json({ affectedRows: result.affectedRows })
         } catch (err) {
-            res.status(500).json({ error: err.message })
+            console.error('Open trips error:', err);
+        res.status(500).json({ error: "Operation failed" })
         }
     }
 )

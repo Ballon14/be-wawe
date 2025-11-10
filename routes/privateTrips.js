@@ -11,7 +11,72 @@ router.get("/", async (req, res) => {
         )
         res.json(rows)
     } catch (err) {
-        res.status(500).json({ error: err.message })
+        console.error('Private trips error:', err);
+        res.status(500).json({ error: "Operation failed" })
+    }
+})
+
+// User request private trip (create request)
+router.post("/request", authenticateToken, async (req, res) => {
+    try {
+        const { destinasi_id, guide_id, tanggal_keberangkatan, jumlah_peserta, catatan, username } = req.body
+        
+        if (!destinasi_id || !tanggal_keberangkatan || !jumlah_peserta) {
+            return res.status(400).json({ error: "destinasi_id, tanggal_keberangkatan, dan jumlah_peserta wajib diisi" })
+        }
+
+        // Get destinasi name
+        const [destRows] = await pool.query("SELECT nama_destinasi FROM destinations WHERE id = ?", [destinasi_id])
+        const destinasiName = destRows[0]?.nama_destinasi || `Destinasi ID ${destinasi_id}`
+
+        // Get guide name if provided
+        let guideName = null
+        if (guide_id) {
+            const [guideRows] = await pool.query("SELECT nama FROM guides WHERE id = ?", [guide_id])
+            guideName = guideRows[0]?.nama || null
+        }
+
+        // Create request (simpan sebagai private trip dengan status pending)
+        const requestData = {
+            destinasi: destinasiName,
+            min_peserta: parseInt(jumlah_peserta) || 1,
+            harga_paket: 0, // Akan dihitung admin
+            paket_pilihan: JSON.stringify([]),
+            custom_form: JSON.stringify({
+                username: username || req.user.username,
+                guide_id: guide_id || null,
+                guide_name: guideName,
+                tanggal_keberangkatan: tanggal_keberangkatan,
+                jumlah_peserta: parseInt(jumlah_peserta),
+                catatan: catatan || null,
+                status: 'pending'
+            }),
+            estimasi_biaya: null,
+            dokumentasi: JSON.stringify([]),
+            dilaksanakan: 0
+        }
+
+        const [result] = await pool.query(
+            "INSERT INTO private_trips (destinasi, min_peserta, harga_paket, paket_pilihan, custom_form, estimasi_biaya, dokumentasi, dilaksanakan) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                requestData.destinasi,
+                requestData.min_peserta,
+                requestData.harga_paket,
+                requestData.paket_pilihan,
+                requestData.custom_form,
+                requestData.estimasi_biaya,
+                requestData.dokumentasi,
+                requestData.dilaksanakan
+            ]
+        )
+
+        res.status(201).json({ 
+            id: result.insertId,
+            message: "Permintaan trip berhasil dikirim. Admin akan menghubungi Anda segera."
+        })
+    } catch (err) {
+        console.error('Create private trip request error:', err);
+        res.status(500).json({ error: "Gagal mengirim permintaan trip" })
     }
 })
 
@@ -26,7 +91,8 @@ router.get("/:id", async (req, res) => {
             return res.status(404).json({ error: "Trip not found" })
         res.json(rows[0])
     } catch (err) {
-        res.status(500).json({ error: err.message })
+        console.error('Private trips error:', err);
+        res.status(500).json({ error: "Operation failed" })
     }
 })
 
@@ -62,7 +128,8 @@ router.post(
             )
             res.status(201).json({ id: result.insertId })
         } catch (err) {
-            res.status(500).json({ error: err.message })
+            console.error('Private trips error:', err);
+        res.status(500).json({ error: "Operation failed" })
         }
     }
 )
@@ -126,7 +193,8 @@ router.put(
             }
             res.json({ affectedRows: result.affectedRows })
         } catch (err) {
-            res.status(500).json({ error: err.message })
+            console.error('Private trips error:', err);
+        res.status(500).json({ error: "Operation failed" })
         }
     }
 )
@@ -144,7 +212,8 @@ router.delete(
             )
             res.json({ affectedRows: result.affectedRows })
         } catch (err) {
-            res.status(500).json({ error: err.message })
+            console.error('Private trips error:', err);
+        res.status(500).json({ error: "Operation failed" })
         }
     }
 )

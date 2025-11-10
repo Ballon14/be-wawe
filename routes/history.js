@@ -11,7 +11,8 @@ router.get("/", authenticateToken, authorizeRole("admin"), async (req, res) => {
         )
         res.json(rows)
     } catch (err) {
-        res.status(500).json({ error: err.message })
+        console.error('History error:', err);
+        res.status(500).json({ error: "Operation failed" })
     }
 })
 
@@ -34,7 +35,8 @@ router.post("/", authenticateToken, async (req, res) => {
         )
         res.json({ message: "History recorded" })
     } catch (err) {
-        res.status(500).json({ error: err.message })
+        console.error('History error:', err);
+        res.status(500).json({ error: "Operation failed" })
     }
 })
 

@@ -11,7 +11,8 @@ router.get("/", async (req, res) => {
         )
         res.json(rows)
     } catch (err) {
-        res.status(500).json({ error: err.message })
+        console.error('Guides error:', err);
+        res.status(500).json({ error: "Operation failed" })
     }
 })
 
@@ -26,7 +27,8 @@ router.get("/:id", async (req, res) => {
             return res.status(404).json({ error: "Guide not found" })
         res.json(rows[0])
     } catch (err) {
-        res.status(500).json({ error: err.message })
+        console.error('Guides error:', err);
+        res.status(500).json({ error: "Operation failed" })
     }
 })
 
@@ -68,7 +70,8 @@ router.post(
             )
             res.status(201).json({ id: result.insertId })
         } catch (err) {
-            res.status(500).json({ error: err.message })
+            console.error('Create guide error:', err);
+            res.status(500).json({ error: "Failed to create guide" })
         }
     }
 )
@@ -125,7 +128,8 @@ router.put(
             )
             res.json({ affectedRows: result.affectedRows })
         } catch (err) {
-            res.status(500).json({ error: err.message })
+            console.error('Guides error:', err);
+        res.status(500).json({ error: "Operation failed" })
         }
     }
 )
@@ -142,7 +146,8 @@ router.delete(
             ])
             res.json({ affectedRows: result.affectedRows })
         } catch (err) {
-            res.status(500).json({ error: err.message })
+            console.error('Guides error:', err);
+        res.status(500).json({ error: "Operation failed" })
         }
     }
 )
