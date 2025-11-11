@@ -17,6 +17,8 @@ const migrationsDir = path.join(__dirname, 'migrations');
     'create_destinations_table.sql',
     'create_guides_table.sql',
     'create_open_trips_table.sql',
+    'create_open_trip_registrations_table.sql',
+    'add_open_trip_registration_fields.sql',
     'create_history_table.sql',
     'create_private_trips_table.sql',
     'create_chat_messages_table.sql'

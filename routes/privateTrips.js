@@ -16,6 +16,21 @@ router.get("/", async (req, res) => {
     }
 })
 
+// Get private trips milik user login
+router.get("/my", authenticateToken, async (req, res) => {
+    try {
+        const username = req.user.username;
+        const [rows] = await pool.query(
+            "SELECT * FROM private_trips WHERE JSON_EXTRACT(custom_form, '$.username') = ? ORDER BY id DESC",
+            [username]
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error("Get my private trips error:", err);
+        res.status(500).json({ error: "Failed to fetch user trips" });
+    }
+});
+
 // User request private trip (create request)
 router.post("/request", authenticateToken, async (req, res) => {
     try {
@@ -199,6 +214,38 @@ router.put(
     }
 )
 
+// Update only status permintaan private trip (admin)
+router.put("/:id/status", authenticateToken, authorizeRole("admin"), async (req, res) => {
+    try {
+        const { status } = req.body;
+        // Ambil data trip lama
+        const [oldRows] = await pool.query("SELECT custom_form FROM private_trips WHERE id=?", [req.params.id]);
+        if (!oldRows[0]) {
+            return res.status(404).json({ error: "Trip not found" });
+        }
+        let customForm = {};
+        try {
+            if (typeof oldRows[0].custom_form === 'string') {
+                customForm = JSON.parse(oldRows[0].custom_form || '{}');
+            } else {
+                customForm = oldRows[0].custom_form || {};
+            }
+        } catch {
+            customForm = {};
+        }
+        customForm.status = status;
+        // Lakukan update hanya field custom_form
+        await pool.query(
+            "UPDATE private_trips SET custom_form=? WHERE id=?",
+            [JSON.stringify(customForm), req.params.id]
+        );
+        res.json({ message: "Status updated" });
+    } catch (err) {
+        console.error('Update status private trip error:', err);
+        res.status(500).json({ error: "Failed to update status" });
+    }
+});
+
 // Delete private trip
 router.delete(
     "/:id",
@@ -217,5 +264,31 @@ router.delete(
         }
     }
 )
+
+// Laporan bulanan private trip untuk admin dashboard
+router.get("/report", authenticateToken, authorizeRole("admin"), async (req, res) => {
+    try {
+        const year = req.query.year || new Date().getFullYear();
+        // Rekap bulanan by status dari field custom_form.status
+        const [rows] = await pool.query(
+            `SELECT 
+                DATE_FORMAT(created_at, '%Y-%m') AS month,
+                COUNT(*) AS total,
+                SUM(JSON_EXTRACT(custom_form, '$.status') = 'aktif' OR status = 'aktif') AS aktif,
+                SUM(JSON_EXTRACT(custom_form, '$.status') = 'pending' OR status = 'pending') AS pending,
+                SUM(JSON_EXTRACT(custom_form, '$.status') = 'ditolak' OR status = 'ditolak') AS ditolak,
+                SUM(JSON_EXTRACT(custom_form, '$.jumlah_peserta')) AS total_peserta
+            FROM private_trips
+            WHERE YEAR(created_at) = ?
+            GROUP BY month
+            ORDER BY month DESC`,
+            [year]
+        );
+        res.json({ year, data: rows });
+    } catch (err) {
+        console.error("Laporan bulanan private trip error:", err);
+        res.status(500).json({ error: "Gagal mengambil data laporan bulanan" });
+    }
+});
 
 module.exports = router

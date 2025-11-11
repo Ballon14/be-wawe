@@ -57,16 +57,23 @@ router.post("/register", authLimiter, sanitizeInput, validate(registerValidation
 router.post("/login", authLimiter, sanitizeInput, validate(loginValidation), async (req, res) => {
     try {
         const { username, password } = req.body;
+        const inputUsername = (username || "").trim();
+        if (!inputUsername || !password) {
+            return res.status(400).json({ error: "Username and password are required" });
+        }
+        // Cari user dengan perbandingan case-insensitive pada username
         const [users] = await pool.query(
-            "SELECT * FROM users WHERE username=?",
-            [username]
+            "SELECT * FROM users WHERE LOWER(username)=LOWER(?)",
+            [inputUsername]
         );
-        if (users.length === 0)
-            return res.status(400).json({ error: "Invalid credentials" });
+        if (users.length === 0) {
+            return res.status(401).json({ error: "Username atau password salah" });
+        }
         const user = users[0];
         const valid = await bcrypt.compare(password, user.password_hash);
-        if (!valid)
-            return res.status(400).json({ error: "Invalid credentials" });
+        if (!valid) {
+            return res.status(401).json({ error: "Username atau password salah" });
+        }
         const token = jwt.sign(
             { username: user.username, role: user.role, id: user.id },
             process.env.JWT_SECRET,

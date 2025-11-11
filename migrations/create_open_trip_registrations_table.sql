@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS `open_trip_registrations` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `trip_id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `username` varchar(100) DEFAULT NULL,
+  `nama_lengkap` varchar(255) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `nomor_hp` varchar(30) NOT NULL,
+  `jumlah_peserta` int(11) NOT NULL DEFAULT 1,
+  `catatan` text DEFAULT NULL,
+  `status` enum('pending','confirmed','cancelled') DEFAULT 'pending',
+  `payment_status` enum('pending','paid','expired') DEFAULT 'pending',
+  `payment_reference` varchar(100) DEFAULT NULL,
+  `payment_deadline` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_open_trip_registrations_trip` (`trip_id`),
+  KEY `idx_open_trip_registrations_user` (`user_id`),
+  CONSTRAINT `fk_open_trip_registrations_trip` FOREIGN KEY (`trip_id`) REFERENCES `open_trips` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_open_trip_registrations_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

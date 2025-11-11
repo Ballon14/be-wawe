@@ -4,10 +4,14 @@ const { validationResult } = require('express-validator');
 // Rate limiting untuk auth endpoints (mencegah brute force)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 menit
-    max: 5, // 5 request per window
+    max: 10, // maksimal 10 percobaan login GAGAL per 15 menit
     message: 'Too many login attempts, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
+    // Hitung limit per kombinasi IP + username agar tidak kunci semua user di IP yang sama
+    keyGenerator: (req, _res) => `${req.ip}:${(req.body && req.body.username) || ''}`,
+    // Jangan hitung request yang berhasil sebagai attempt
+    skipSuccessfulRequests: true,
 });
 
 // Rate limiting untuk general API
