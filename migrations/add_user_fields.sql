@@ -7,3 +7,9 @@ ADD COLUMN IF NOT EXISTS `alamat` TEXT NULL COMMENT 'Alamat pengguna' AFTER `nom
 
 
 
+
+
+
+
+
+
