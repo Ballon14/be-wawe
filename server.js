@@ -10,6 +10,7 @@ const historyRoutes = require("./routes/history")
 const destinationsRoutes = require("./routes/destinations")
 const guidesRoutes = require("./routes/guides")
 const chatRoutes = require("./routes/chat")
+const paymentRoutes = require("./routes/payment")
 const multer = require("multer")
 const path = require("path")
 
@@ -98,6 +99,7 @@ app.use("/api/history", historyRoutes)
 app.use("/api/destinations", destinationsRoutes)
 app.use("/api/guides", guidesRoutes)
 app.use("/api/chat", chatRoutes)
+app.use("/api/payment", paymentRoutes)
 app.use("/uploads", express.static(uploadFolder))
 
 app.post("/api/uploads/image", upload.single("image"), (req, res) => {

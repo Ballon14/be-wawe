@@ -12,17 +12,25 @@ function sanitizeString(str) {
 
 function sanitizeObject(obj) {
     if (!obj || typeof obj !== 'object') return obj;
-    
+
+    if (Array.isArray(obj)) {
+        return obj.map((item) =>
+            typeof item === 'object' && item !== null
+                ? sanitizeObject(item)
+                : typeof item === 'string'
+                ? sanitizeString(item)
+                : item
+        );
+    }
+
     const sanitized = {};
-    for (const key in obj) {
-        if (obj.hasOwnProperty(key)) {
-            if (typeof obj[key] === 'string') {
-                sanitized[key] = sanitizeString(obj[key]);
-            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-                sanitized[key] = sanitizeObject(obj[key]);
-            } else {
-                sanitized[key] = obj[key];
-            }
+    for (const [key, value] of Object.entries(obj)) {
+        if (typeof value === 'string') {
+            sanitized[key] = sanitizeString(value);
+        } else if (typeof value === 'object' && value !== null) {
+            sanitized[key] = sanitizeObject(value);
+        } else {
+            sanitized[key] = value;
         }
     }
     return sanitized;

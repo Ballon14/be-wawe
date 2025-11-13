@@ -11,10 +11,30 @@ router.get("/", async (req, res) => {
         )
         res.json(rows)
     } catch (err) {
-        console.error('Open trips error:', err);
+        console.error("Open trips error:", err)
         res.status(500).json({ error: "Operation failed" })
     }
 })
+
+// List all registrations (admin)
+router.get(
+    "/registrations",
+    authenticateToken,
+    authorizeRole("admin"),
+    async (req, res) => {
+        try {
+            const [rows] = await pool.query(
+                `SELECT r.*, t.nama_trip FROM open_trip_registrations r 
+             JOIN open_trips t ON r.trip_id = t.id
+             ORDER BY r.id DESC`
+            )
+            res.json(rows)
+        } catch (err) {
+            console.error("List open trip registrations error:", err)
+            res.status(500).json({ error: "Operation failed" })
+        }
+    }
+)
 
 // Get single open trip
 router.get("/:id", async (req, res) => {
@@ -26,7 +46,7 @@ router.get("/:id", async (req, res) => {
             return res.status(404).json({ error: "Trip not found" })
         res.json(rows[0])
     } catch (err) {
-        console.error('Get open trip error:', err);
+        console.error("Get open trip error:", err)
         res.status(500).json({ error: "Failed to fetch trip" })
     }
 })
@@ -50,20 +70,32 @@ router.post(
                 dilaksanakan,
             } = req.body
             // Validasi input
-            if (!nama_trip || !tanggal_berangkat || !durasi || !kuota || !harga_per_orang) {
-                return res.status(400).json({ error: "Required fields missing" });
+            if (
+                !nama_trip ||
+                !tanggal_berangkat ||
+                !durasi ||
+                !kuota ||
+                !harga_per_orang
+            ) {
+                return res
+                    .status(400)
+                    .json({ error: "Required fields missing" })
             }
-            
+
             // Sanitize dan validasi
-            const sanitizedNamaTrip = String(nama_trip).trim().substring(0, 255);
-            const sanitizedDurasi = parseInt(durasi) || 0;
-            const sanitizedKuota = parseInt(kuota) || 0;
-            const sanitizedHarga = parseInt(harga_per_orang) || 0;
-            
-            if (sanitizedDurasi <= 0 || sanitizedKuota <= 0 || sanitizedHarga < 0) {
-                return res.status(400).json({ error: "Invalid numeric values" });
+            const sanitizedNamaTrip = String(nama_trip).trim().substring(0, 255)
+            const sanitizedDurasi = parseInt(durasi) || 0
+            const sanitizedKuota = parseInt(kuota) || 0
+            const sanitizedHarga = parseInt(harga_per_orang) || 0
+
+            if (
+                sanitizedDurasi <= 0 ||
+                sanitizedKuota <= 0 ||
+                sanitizedHarga < 0
+            ) {
+                return res.status(400).json({ error: "Invalid numeric values" })
             }
-            
+
             const [result] = await pool.query(
                 "INSERT INTO open_trips (nama_trip, tanggal_berangkat, durasi, kuota, harga_per_orang, fasilitas, itinerary, dokumentasi, dilaksanakan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
@@ -73,14 +105,16 @@ router.post(
                     sanitizedKuota,
                     sanitizedHarga,
                     fasilitas ? JSON.stringify(fasilitas) : null,
-                    itinerary ? String(itinerary).trim().substring(0, 5000) : null,
+                    itinerary
+                        ? String(itinerary).trim().substring(0, 5000)
+                        : null,
                     dokumentasi ? JSON.stringify(dokumentasi) : null,
                     dilaksanakan || 0,
                 ]
             )
             res.status(201).json({ id: result.insertId })
         } catch (err) {
-            console.error('Create open trip error:', err);
+            console.error("Create open trip error:", err)
             res.status(500).json({ error: "Failed to create trip" })
         }
     }
@@ -147,8 +181,8 @@ router.put(
             }
             res.json({ affectedRows: result.affectedRows })
         } catch (err) {
-            console.error('Open trips error:', err);
-        res.status(500).json({ error: "Operation failed" })
+            console.error("Open trips error:", err)
+            res.status(500).json({ error: "Operation failed" })
         }
     }
 )
@@ -166,98 +200,221 @@ router.delete(
             )
             res.json({ affectedRows: result.affectedRows })
         } catch (err) {
-            console.error('Open trips error:', err);
-        res.status(500).json({ error: "Operation failed" })
+            console.error("Open trips error:", err)
+            res.status(500).json({ error: "Operation failed" })
         }
     }
 )
 
 // Register to an open trip (user)
-router.post(
-    "/:id/register",
+router.post("/:id/register", authenticateToken, async (req, res) => {
+    try {
+        const tripId = parseInt(req.params.id)
+        const {
+            nama_lengkap,
+            email,
+            nomor_hp,
+            jumlah_peserta,
+            catatan,
+            alamat,
+            kontak_darurat_nama,
+            kontak_darurat_nomor,
+            riwayat_penyakit,
+            kondisi_fit,
+        } = req.body
+
+        if (
+            !tripId ||
+            !nama_lengkap ||
+            !email ||
+            !nomor_hp ||
+            !jumlah_peserta
+        ) {
+            return res.status(400).json({ error: "Required fields missing" })
+        }
+
+        const [tripRows] = await pool.query(
+            "SELECT id, nama_trip FROM open_trips WHERE id=?",
+            [tripId]
+        )
+        if (tripRows.length === 0)
+            return res.status(404).json({ error: "Trip not found" })
+
+        const [result] = await pool.query(
+            `INSERT INTO open_trip_registrations 
+                (trip_id, user_id, username, nama_lengkap, email, nomor_hp, jumlah_peserta, catatan, alamat, kontak_darurat_nama, kontak_darurat_nomor, riwayat_penyakit, kondisi_fit, status, payment_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending')`,
+            [
+                tripId,
+                req.user?.id || null,
+                req.user?.username || null,
+                String(nama_lengkap).trim().substring(0, 255),
+                String(email).trim().substring(0, 255),
+                String(nomor_hp).trim().substring(0, 30),
+                parseInt(jumlah_peserta) || 1,
+                catatan ? String(catatan).trim() : null,
+                alamat ? String(alamat).trim() : null,
+                kontak_darurat_nama ? String(kontak_darurat_nama).trim() : null,
+                kontak_darurat_nomor
+                    ? String(kontak_darurat_nomor).trim()
+                    : null,
+                riwayat_penyakit ? String(riwayat_penyakit).trim() : null,
+                kondisi_fit ? 1 : 0,
+            ]
+        )
+
+        res.status(201).json({ id: result.insertId })
+    } catch (err) {
+        console.error("Register open trip error:", err)
+        res.status(500).json({ error: "Failed to register" })
+    }
+})
+
+// Get user's open trip registrations (must be before /:id/registrations)
+router.get("/my/registrations", authenticateToken, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT 
+                r.*, 
+                t.nama_trip,
+                t.tanggal_berangkat,
+                t.durasi,
+                t.harga_per_orang,
+                t.dilaksanakan,
+                t.fasilitas,
+                t.itinerary,
+                t.dokumentasi
+             FROM open_trip_registrations r 
+             JOIN open_trips t ON r.trip_id = t.id
+             WHERE r.user_id = ?
+             ORDER BY r.created_at DESC`,
+            [req.user.id]
+        )
+        res.json(rows)
+    } catch (err) {
+        console.error("Get user open trip registrations error:", err)
+        res.status(500).json({ error: "Operation failed" })
+    }
+})
+
+// Cancel user's open trip registration
+router.put(
+    "/my/registrations/:id/cancel",
     authenticateToken,
     async (req, res) => {
         try {
-            const tripId = parseInt(req.params.id)
-            const {
-                nama_lengkap,
-                email,
-                nomor_hp,
-                jumlah_peserta,
-                catatan,
-                alamat,
-                kontak_darurat_nama,
-                kontak_darurat_nomor,
-                riwayat_penyakit,
-                kondisi_fit,
-            } = req.body
+            const registrationId = parseInt(req.params.id)
 
-            if (!tripId || !nama_lengkap || !email || !nomor_hp || !jumlah_peserta) {
-                return res.status(400).json({ error: "Required fields missing" })
-            }
-
-            const [tripRows] = await pool.query("SELECT id, nama_trip FROM open_trips WHERE id=?", [tripId])
-            if (tripRows.length === 0) return res.status(404).json({ error: "Trip not found" })
-
-            const [result] = await pool.query(
-                `INSERT INTO open_trip_registrations 
-                (trip_id, user_id, username, nama_lengkap, email, nomor_hp, jumlah_peserta, catatan, alamat, kontak_darurat_nama, kontak_darurat_nomor, riwayat_penyakit, kondisi_fit, status, payment_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending')`,
-                [
-                    tripId,
-                    req.user?.id || null,
-                    req.user?.username || null,
-                    String(nama_lengkap).trim().substring(0,255),
-                    String(email).trim().substring(0,255),
-                    String(nomor_hp).trim().substring(0,30),
-                    parseInt(jumlah_peserta) || 1,
-                    catatan ? String(catatan).trim() : null,
-                    alamat ? String(alamat).trim() : null,
-                    kontak_darurat_nama ? String(kontak_darurat_nama).trim() : null,
-                    kontak_darurat_nomor ? String(kontak_darurat_nomor).trim() : null,
-                    riwayat_penyakit ? String(riwayat_penyakit).trim() : null,
-                    kondisi_fit ? 1 : 0,
-                ]
+            // Get registration data
+            const [registrationRows] = await pool.query(
+                `SELECT r.*, t.dilaksanakan 
+             FROM open_trip_registrations r
+             JOIN open_trips t ON r.trip_id = t.id
+             WHERE r.id = ? AND r.user_id = ?`,
+                [registrationId, req.user.id]
             )
 
-            res.status(201).json({ id: result.insertId })
+            if (registrationRows.length === 0) {
+                return res.status(404).json({ error: "Registration not found" })
+            }
+
+            const registration = registrationRows[0]
+
+            // Check if trip already executed
+            if (registration.dilaksanakan === 1) {
+                return res.status(400).json({
+                    error: "Tidak dapat membatalkan trip yang sudah dilaksanakan",
+                })
+            }
+
+            // Check if already cancelled
+            if (registration.status === "cancelled") {
+                return res.status(400).json({
+                    error: "Trip sudah dibatalkan sebelumnya",
+                })
+            }
+
+            // Update status to cancelled
+            await pool.query(
+                `UPDATE open_trip_registrations 
+             SET status = 'cancelled'
+             WHERE id = ? AND user_id = ?`,
+                [registrationId, req.user.id]
+            )
+
+            res.json({
+                message: "Trip berhasil dibatalkan",
+                registrationId: registrationId,
+            })
         } catch (err) {
-            console.error('Register open trip error:', err);
-            res.status(500).json({ error: "Failed to register" })
+            console.error("Cancel registration error:", err)
+            res.status(500).json({ error: "Failed to cancel registration" })
         }
     }
 )
 
-// List all registrations (admin)
-router.get("/registrations", authenticateToken, authorizeRole("admin"), async (req, res) => {
+// Delete user's cancelled registration
+router.delete("/my/registrations/:id", authenticateToken, async (req, res) => {
     try {
-        const [rows] = await pool.query(
-            `SELECT r.*, t.nama_trip FROM open_trip_registrations r 
-             JOIN open_trips t ON r.trip_id = t.id
-             ORDER BY r.id DESC`
+        const registrationId = parseInt(req.params.id)
+
+        // Get registration data
+        const [registrationRows] = await pool.query(
+            `SELECT * FROM open_trip_registrations 
+             WHERE id = ? AND user_id = ?`,
+            [registrationId, req.user.id]
         )
-        res.json(rows)
+
+        if (registrationRows.length === 0) {
+            return res.status(404).json({ error: "Registration not found" })
+        }
+
+        const registration = registrationRows[0]
+
+        // Only allow deletion if status is cancelled
+        if (registration.status !== "cancelled") {
+            return res.status(400).json({
+                error: "Hanya trip yang dibatalkan yang dapat dihapus",
+            })
+        }
+
+        // Delete registration
+        await pool.query(
+            `DELETE FROM open_trip_registrations 
+             WHERE id = ? AND user_id = ? AND status = 'cancelled'`,
+            [registrationId, req.user.id]
+        )
+
+        res.json({
+            message: "Riwayat trip berhasil dihapus",
+            registrationId: registrationId,
+        })
     } catch (err) {
-        console.error('List open trip registrations error:', err);
-        res.status(500).json({ error: "Operation failed" })
+        console.error("Delete cancelled registration error:", err)
+        res.status(500).json({ error: "Failed to delete registration" })
     }
 })
 
 // List registrations by trip (admin)
-router.get("/:id/registrations", authenticateToken, authorizeRole("admin"), async (req, res) => {
-    try {
-        const [rows] = await pool.query(
-            `SELECT r.*, t.nama_trip FROM open_trip_registrations r 
+router.get(
+    "/:id/registrations",
+    authenticateToken,
+    authorizeRole("admin"),
+    async (req, res) => {
+        try {
+            const [rows] = await pool.query(
+                `SELECT r.*, t.nama_trip FROM open_trip_registrations r 
              JOIN open_trips t ON r.trip_id = t.id
              WHERE r.trip_id = ?
              ORDER BY r.id DESC`,
-            [req.params.id]
-        )
-        res.json(rows)
-    } catch (err) {
-        console.error('List open trip registrations by trip error:', err);
-        res.status(500).json({ error: "Operation failed" })
+                [req.params.id]
+            )
+            res.json(rows)
+        } catch (err) {
+            console.error("List open trip registrations by trip error:", err)
+            res.status(500).json({ error: "Operation failed" })
+        }
     }
-})
+)
 
 module.exports = router
