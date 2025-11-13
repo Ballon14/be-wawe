@@ -1,8 +1,12 @@
 const express = require("express")
 require("dotenv").config()
+const http = require("http")
+const { Server } = require("socket.io")
 const helmet = require("helmet")
 const cors = require("cors")
 const { apiLimiter } = require("./middleware/security")
+const jwt = require("jsonwebtoken")
+const pool = require("./db")
 const authRoutes = require("./routes/auth")
 const openTripsRoutes = require("./routes/openTrips")
 const privateTripsRoutes = require("./routes/privateTrips")
@@ -53,6 +57,51 @@ const upload = multer({
     },
 })
 
+const MESSAGE_LIMIT_PER_MINUTE = 100
+const MESSAGE_WINDOW_MS = 60 * 1000
+const messageRateTracker = new Map()
+
+function isRateLimited(userId) {
+    if (!userId) return false
+    const now = Date.now()
+    const entry = messageRateTracker.get(userId) || { count: 0, start: now }
+
+    if (now - entry.start > MESSAGE_WINDOW_MS) {
+        entry.count = 0
+        entry.start = now
+    }
+
+    entry.count += 1
+    messageRateTracker.set(userId, entry)
+    return entry.count > MESSAGE_LIMIT_PER_MINUTE
+}
+
+function sanitizeMessageContent(content) {
+    if (typeof content !== "string") return ""
+    return content
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+        .trim()
+        .slice(0, 1000)
+}
+
+async function fetchRecentMessages(limit = 50) {
+    const safeLimit = Math.min(Math.max(limit, 1), 100)
+    const [rows] = await pool.query(
+        "SELECT id, username, message, role, is_read, created_at FROM chat_messages ORDER BY created_at DESC LIMIT ?",
+        [safeLimit]
+    )
+    return rows.reverse()
+}
+
+async function getUnreadCount() {
+    const [result] = await pool.query(
+        "SELECT COUNT(*) as count FROM chat_messages WHERE is_read = 0 AND role = 'user'"
+    )
+    const countRow =
+        Array.isArray(result) && result.length > 0 ? result[0] : { count: 0 }
+    return countRow.count || 0
+}
+
 const app = express()
 
 // Security Headers
@@ -64,6 +113,13 @@ app.use(
                 styleSrc: ["'self'", "'unsafe-inline'"],
                 scriptSrc: ["'self'"],
                 imgSrc: ["'self'", "data:", "https:"],
+                connectSrc: [
+                    "'self'",
+                    process.env.FRONTEND_URL || "http://localhost:5173",
+                    process.env.BACKEND_URL || "http://localhost:3000",
+                    "ws:",
+                    "wss:",
+                ],
             },
         },
         crossOriginEmbedderPolicy: false,
@@ -147,4 +203,138 @@ app.use((err, req, res, next) => {
 })
 
 const PORT = process.env.PORT || 3000
-app.listen(PORT, "0.0.0.0", () => console.log("Server ready on port", PORT))
+const server = http.createServer(app)
+
+const io = new Server(server, {
+    cors: {
+        origin: process.env.FRONTEND_URL || "http://localhost:5173",
+        credentials: true,
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    },
+})
+
+app.set("io", io)
+
+const respond = (ack, payload) => {
+    if (typeof ack === "function") {
+        ack(payload)
+    }
+}
+
+io.use((socket, next) => {
+    try {
+        const authToken = socket.handshake.auth?.token
+        const headerToken = socket.handshake.headers?.authorization
+        let token = authToken
+
+        if (
+            !token &&
+            typeof headerToken === "string" &&
+            headerToken.startsWith("Bearer ")
+        ) {
+            token = headerToken.split(" ")[1]
+        }
+
+        if (!token) {
+            return next(new Error("Unauthorized"))
+        }
+
+        const user = jwt.verify(token, process.env.JWT_SECRET, {
+            issuer: "kawan-hiking",
+        })
+        socket.data.user = user
+        return next()
+    } catch (err) {
+        return next(new Error("Unauthorized"))
+    }
+})
+
+io.on("connection", async (socket) => {
+    const user = socket.data.user
+
+    try {
+        const history = await fetchRecentMessages(100)
+        socket.emit("chat:history", history)
+
+        if (user.role === "admin") {
+            const unread = await getUnreadCount()
+            socket.emit("chat:unread-count", unread)
+        }
+    } catch (err) {
+        console.error("Socket initial sync error:", err)
+    }
+
+    socket.on("chat:send", async (payload = {}, ack) => {
+        try {
+            const messageContent = sanitizeMessageContent(payload.message)
+
+            if (!messageContent) {
+                respond(ack, { ok: false, error: "Pesan tidak boleh kosong." })
+                return
+            }
+
+            if (isRateLimited(user.id)) {
+                respond(ack, {
+                    ok: false,
+                    error: "Terlalu banyak pesan dalam satu menit. Coba lagi nanti.",
+                })
+                return
+            }
+
+            const [result] = await pool.query(
+                "INSERT INTO chat_messages (username, message, role) VALUES (?, ?, ?)",
+                [user.username, messageContent, user.role]
+            )
+
+            if (user.role === "admin") {
+                await pool.query(
+                    "UPDATE chat_messages SET is_read = 1 WHERE role = 'user' AND is_read = 0"
+                )
+            }
+
+            const [rows] = await pool.query(
+                "SELECT id, username, message, role, is_read, created_at FROM chat_messages WHERE id = ?",
+                [result.insertId]
+            )
+
+            const savedMessage = rows && rows.length > 0 ? rows[0] : null
+
+            if (savedMessage) {
+                io.emit("chat:message", savedMessage)
+            }
+
+            const unreadCount = await getUnreadCount()
+            io.emit("chat:unread-count", unreadCount)
+
+            respond(ack, { ok: true, id: result.insertId })
+        } catch (err) {
+            console.error("Socket send message error:", err)
+            socket.emit(
+                "chat:error",
+                "Gagal mengirim pesan. Silakan coba lagi."
+            )
+            respond(ack, { ok: false, error: "Gagal mengirim pesan." })
+        }
+    })
+
+    socket.on("chat:mark-read", async (_payload, ack) => {
+        if (user.role !== "admin") {
+            respond(ack, { ok: false, error: "Forbidden" })
+            return
+        }
+
+        try {
+            await pool.query(
+                "UPDATE chat_messages SET is_read = 1 WHERE role = 'user' AND is_read = 0"
+            )
+            const unreadCount = await getUnreadCount()
+            io.emit("chat:unread-count", unreadCount)
+            respond(ack, { ok: true })
+        } catch (err) {
+            console.error("Socket mark-read error:", err)
+            respond(ack, { ok: false, error: "Gagal memperbarui status baca." })
+        }
+    })
+})
+
+server.listen(PORT, "0.0.0.0", () => console.log("Server ready on port", PORT))
